@@ -22,7 +22,7 @@ int main(int argc, char** argv) {
     ibody[i].fx = jbody[i].fx = ibody[i].fy = jbody[i].fy = 0;
     recvBody[i].fx = recvBody[i].fy = 0;
   }
-//  int recv_from = (rank + 1) % size;
+//int recv_from = (rank + 1) % size;
   int send_to = (rank - 1 + size) % size;
   MPI_Datatype MPI_BODY;
   MPI_Type_contiguous(5, MPI_DOUBLE, &MPI_BODY);
