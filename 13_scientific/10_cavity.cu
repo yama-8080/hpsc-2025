@@ -2,14 +2,18 @@
 #include <cstdio>
 #include <fstream>
 #include <math.h>
-#include <cuda.h> 
+#include <cuda.h>
 #include <cuda_runtime.h>
-#include <cuda_runtime_api.h> 
+#include <cuda_runtime_api.h>
 #include <cooperative_groups.h>
+#include <time.h>
 
 using namespace std;
 using namespace cooperative_groups;
 
+/**
+ * copy src array to dst array.
+ */
 __device__ void copy(float *src, float *dst, const int idx) {
   dst[idx] = src[idx];
 }
@@ -68,7 +72,6 @@ __global__ void computeP(const float *u, const float *v, float *p, const float *
     for (int it=0; it<nit; it++) {
       //copy previous p to pn
       copy(p, pn, idx);
-      //__syncthreads();
       grid.sync();
 
       //except for boundary
@@ -78,8 +81,7 @@ __global__ void computeP(const float *u, const float *v, float *p, const float *
                 - b[idx] * pow(dx, 2) * pow(dy, 2))
                   / (2 * (pow(dx, 2) + pow(dy, 2)));
       }
-      //__syncthreads();
-      grid.sync();
+      __syncthreads();
 
       //only for boundary
       if(boundary){
@@ -92,8 +94,7 @@ __global__ void computeP(const float *u, const float *v, float *p, const float *
         if(idx % ny == ny-1)
           p[idx] = p[idx - 1];
       }
-      //__syncthreads();
-      grid.sync();
+      __syncthreads();
     }
   }
 }
@@ -116,7 +117,6 @@ __global__ void computeUV(float *u, float *v, const float *p, float *un, float *
     //copy previous u,v to un,vn
     copy(u, un, idx);
     copy(v, vn, idx);
-    //__syncthreads();
     grid.sync();
 
     //except for boundary
@@ -181,19 +181,21 @@ int main() {
   ofstream vfile("v.dat");
   ofstream pfile("p.dat");
 
+  struct timespec start, stop;
+  double elapse = 0;
+  clock_gettime(CLOCK_REALTIME, &start);
+
   for (int n=0; n<nt; n++) {
     void* argsComputeB[]{ &u, &v, &b, &nx, &ny, &dx, &dy, &dt, &rho };
     cudaLaunchCooperativeKernel((void*)computeB, Blocks, ThreadsPerBlock, argsComputeB, 0, nullptr);
-    //computeB<<<Blocks, ThreadsPerBlock>>>(u, v, b, nx, ny, dx, dy, dt, rho);
     cudaDeviceSynchronize();
+
     void* argsComputeP[]{ &u, &v, &p, &b, &pn, &nx, &ny, &nit, &dx, &dy };
     cudaLaunchCooperativeKernel((void*)computeP, Blocks, ThreadsPerBlock, argsComputeP, 0, nullptr);
-    //computeP<<<Blocks, ThreadsPerBlock>>>(u, v, p, b, pn, nx, ny, nit, dx, dy);
     cudaDeviceSynchronize();
 
     void* argsComputeUV[]{ &u, &v, &p, &un, &vn, &nx, &ny, &dx, &dy, &dt, &rho, &nu };
     cudaLaunchCooperativeKernel((void*)computeUV, Blocks, ThreadsPerBlock, argsComputeUV, 0, nullptr);
-    //computeUV<<<Blocks, ThreadsPerBlock>>>(u, v, p, un, vn, nx, ny, dx, dy, dt, rho, nu);
     cudaDeviceSynchronize();
     
     // write to dat file
@@ -214,7 +216,9 @@ int main() {
   }
   cudaDeviceSynchronize();
 
-
+  clock_gettime(CLOCK_REALTIME, &stop);
+  elapse += stop.tv_sec - start.tv_sec + (stop.tv_nsec - start.tv_nsec)*1e-9;
+  printf("elapsed time = %lf\n", elapse);
 
   ufile.close();
   vfile.close();
